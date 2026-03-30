@@ -66,7 +66,8 @@ function createDocumentRoutes(vectorStore) {
       const embeddings = await embedTexts(chunks);
 
       // Store in vector store (scoped to session)
-      const ownerId = req.session.id;
+      const ownerId = req.sessionID;
+      console.log(`  Upload av "${originalname}" for sesjon ${ownerId.slice(0, 8)}...`);
       vectorStore.addDocument(documentId, originalname, chunks, embeddings, ownerId);
 
       // Rename uploaded file to include document ID
@@ -89,7 +90,9 @@ function createDocumentRoutes(vectorStore) {
 
   // GET /api/documents — list this user's uploaded documents
   router.get('/documents', (req, res) => {
-    const docs = vectorStore.listDocuments(req.session.id);
+    const ownerId = req.sessionID;
+    console.log(`  Dokument-liste for sesjon ${ownerId.slice(0, 8)}...: ${vectorStore.listDocuments(ownerId).length} dokumenter`);
+    const docs = vectorStore.listDocuments(ownerId);
     res.json(docs);
   });
 

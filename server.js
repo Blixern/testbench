@@ -179,7 +179,7 @@ app.post('/api/chat', async (req, res) => {
     let fullSystemPrompt = buildSystemPrompt(activeRole);
 
     // Retrieve relevant context from this user's documents
-    const ownerId = req.session.id;
+    const ownerId = req.sessionID;
     if (lastUserMessage && vectorStore.hasDocuments(ownerId)) {
       try {
         const { contextText } = await retrieveContext(vectorStore, lastUserMessage.content, 5, ownerId);

@@ -20,6 +20,7 @@ router.post('/verify', (req, res) => {
 
   if (password === accessPassword) {
     req.session.authenticated = true;
+    console.log(`  Bruker autentisert med sesjon: ${req.sessionID.slice(0, 8)}...`);
     res.json({ success: true });
   } else {
     res.status(401).json({ error: 'Feil passord' });
