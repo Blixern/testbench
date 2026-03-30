@@ -46,9 +46,43 @@ app.use('/api', requireAuth);
 // Document routes
 app.use('/api', createDocumentRoutes(vectorStore));
 
-// Chat endpoint — RAG-enhanced
+// Role definitions — system prompts from env vars
+const ROLES = {
+  interessent: {
+    name: 'Interessent',
+    color: '#4a9eff',
+    description: 'Potensiell kjøper som vurderer bolig'
+  },
+  selger: {
+    name: 'Selger',
+    color: '#00ff88',
+    description: 'Eier som selger bolig'
+  },
+  kjoper: {
+    name: 'Kjøper',
+    color: '#ff9f43',
+    description: 'Aktiv kjøper i prosess'
+  }
+};
+
+function getSystemPromptForRole(role) {
+  const envKey = `SYSTEM_PROMPT_${role.toUpperCase()}`;
+  return process.env[envKey] || process.env.SYSTEM_PROMPT || 'Du er en hjelpsom AI-assistent. Svar på norsk.';
+}
+
+// GET /api/roles — list available roles
+app.get('/api/roles', (req, res) => {
+  const roles = Object.entries(ROLES).map(([key, r]) => ({
+    key,
+    ...r,
+    hasPrompt: !!process.env[`SYSTEM_PROMPT_${key.toUpperCase()}`]
+  }));
+  res.json(roles);
+});
+
+// Chat endpoint — RAG-enhanced with role support
 app.post('/api/chat', async (req, res) => {
-  const { messages } = req.body;
+  const { messages, role } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Ingen meldinger mottatt' });
@@ -59,12 +93,13 @@ app.post('/api/chat', async (req, res) => {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY er ikke konfigurert' });
   }
 
-  const systemPrompt = process.env.SYSTEM_PROMPT || 'Du er en hjelpsom AI-assistent. Svar på norsk.';
+  const activeRole = role && ROLES[role] ? role : 'interessent';
+  const systemPrompt = getSystemPromptForRole(activeRole);
 
   try {
     // Get the latest user message for RAG retrieval
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-    let fullSystemPrompt = systemPrompt;
+    let fullSystemPrompt = `[ROLLE: ${ROLES[activeRole].name.toUpperCase()}]\n\n${systemPrompt}`;
 
     // Retrieve relevant context if we have documents
     if (lastUserMessage && vectorStore.hasDocuments()) {
@@ -121,4 +156,5 @@ app.listen(PORT, () => {
   console.log(`  Modell: Claude Opus 4.6`);
   console.log(`  Dokumenter: ${vectorStore.listDocuments().length} lastet`);
   console.log(`  Passord: ${process.env.ACCESS_PASSWORD ? 'Satt' : 'IKKE SATT!'}`);
+  console.log(`  Roller: ${Object.keys(ROLES).map(r => `${r}${process.env['SYSTEM_PROMPT_' + r.toUpperCase()] ? ' ✓' : ' ✗'}`).join(', ')}`);
 });

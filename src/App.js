@@ -27,13 +27,14 @@ const storage = {
 };
 
 // API call to server (no API key needed — server handles it)
-const callClaude = async (messages) => {
+const callClaude = async (messages, role) => {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({
-      messages: messages.map(m => ({ role: m.role, content: m.content }))
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      role
     })
   });
 
@@ -178,7 +179,7 @@ function DocumentPanel() {
 // CHAT SIDEBAR
 // ============================================================================
 
-function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteChat }) {
+function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteChat, roles }) {
   return (
     <div style={styles.sidebar}>
       <div style={styles.sidebarHeader}>
@@ -190,7 +191,9 @@ function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteCh
         {chats.length === 0 ? (
           <div style={styles.noChats}>Ingen samtaler ennå</div>
         ) : (
-          chats.map(chat => (
+          chats.map(chat => {
+            const chatRole = roles.find(r => r.key === chat.activeRole);
+            return (
             <div
               key={chat.id}
               onClick={() => onSelectChat(chat.id)}
@@ -199,6 +202,16 @@ function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteCh
                 ...(chat.id === currentChatId ? styles.chatItemActive : {})
               }}
             >
+              {chatRole && (
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{
+                    ...styles.chatRoleBadge,
+                    backgroundColor: chatRole.color
+                  }}>
+                    {chatRole.name}
+                  </span>
+                </div>
+              )}
               <div style={styles.chatItemTitle}>
                 {chat.title || 'Ny samtale'}
               </div>
@@ -212,7 +225,8 @@ function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteCh
                 ×
               </button>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -225,7 +239,7 @@ function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteCh
 // CHAT INTERFACE
 // ============================================================================
 
-function ChatInterface({ chat, onUpdateChat }) {
+function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -245,6 +259,7 @@ function ChatInterface({ chat, onUpdateChat }) {
     onUpdateChat({
       ...chat,
       messages: newMessages,
+      activeRole,
       title: chat.title || input.trim().slice(0, 40) + (input.length > 40 ? '...' : '')
     });
 
@@ -252,12 +267,13 @@ function ChatInterface({ chat, onUpdateChat }) {
     setIsLoading(true);
 
     try {
-      const response = await callClaude(newMessages);
+      const response = await callClaude(newMessages, activeRole);
       const assistantMessage = { role: 'assistant', content: response.content };
 
       onUpdateChat({
         ...chat,
         messages: [...newMessages, assistantMessage],
+        activeRole,
         title: chat.title || input.trim().slice(0, 40) + (input.length > 40 ? '...' : '')
       });
     } catch (err) {
@@ -274,6 +290,8 @@ function ChatInterface({ chat, onUpdateChat }) {
     }
   };
 
+  const currentRoleData = roles.find(r => r.key === activeRole);
+
   return (
     <div style={styles.chatContainer}>
       <div style={styles.chatHeader}>
@@ -282,6 +300,25 @@ function ChatInterface({ chat, onUpdateChat }) {
           <span style={styles.chatTitle}>AI Chat</span>
         </div>
         <div style={styles.headerRight}>
+          <div style={styles.roleSelector}>
+            {roles.map(r => (
+              <button
+                key={r.key}
+                onClick={() => onRoleChange(r.key)}
+                style={{
+                  ...styles.roleButton,
+                  ...(activeRole === r.key ? {
+                    borderColor: r.color,
+                    color: r.color,
+                    backgroundColor: `${r.color}15`
+                  } : {})
+                }}
+              >
+                <span style={{ color: r.color, marginRight: '4px' }}>●</span>
+                {r.name}
+              </button>
+            ))}
+          </div>
           <span style={styles.modelBadge}>Claude Opus</span>
         </div>
       </div>
@@ -371,6 +408,8 @@ export default function App() {
   const [chats, setChats] = useState([]);
   const [currentChatId, setCurrentChatId] = useState(null);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [roles, setRoles] = useState([]);
+  const [activeRole, setActiveRole] = useState('interessent');
 
   // Check auth status on mount
   useEffect(() => {
@@ -382,6 +421,21 @@ export default function App() {
       })
       .catch(() => setCheckingAuth(false));
   }, []);
+
+  // Load roles from server after auth
+  useEffect(() => {
+    if (authenticated) {
+      fetch('/api/roles', { credentials: 'include' })
+        .then(res => res.json())
+        .then(data => {
+          setRoles(data);
+          if (data.length > 0 && !data.find(r => r.key === activeRole)) {
+            setActiveRole(data[0].key);
+          }
+        })
+        .catch(e => console.error('Kunne ikke hente roller:', e));
+    }
+  }, [authenticated]);
 
   // Load chats from localStorage
   useEffect(() => {
@@ -454,6 +508,7 @@ export default function App() {
           onSelectChat={setCurrentChatId}
           onNewChat={createNewChat}
           onDeleteChat={deleteChat}
+          roles={roles}
         />
       )}
 
@@ -472,11 +527,16 @@ export default function App() {
           <ChatInterface
             chat={currentChat}
             onUpdateChat={updateChat}
+            activeRole={activeRole}
+            roles={roles}
+            onRoleChange={setActiveRole}
           />
         </main>
 
         <footer style={styles.footer}>
           <span>Claude Opus 4.6</span>
+          <span style={styles.footerDivider}>•</span>
+          <span>Rolle: {roles.find(r => r.key === activeRole)?.name || activeRole}</span>
           <span style={styles.footerDivider}>•</span>
           <span>RAG-aktivert</span>
         </footer>
@@ -780,6 +840,30 @@ const styles = {
     fontSize: '14px',
     fontWeight: '600',
     color: '#fff',
+  },
+  roleSelector: {
+    display: 'flex',
+    gap: '4px',
+  },
+  roleButton: {
+    padding: '4px 10px',
+    fontSize: '11px',
+    fontFamily: 'inherit',
+    border: '1px solid #333',
+    borderRadius: '4px',
+    backgroundColor: 'transparent',
+    color: '#888',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  chatRoleBadge: {
+    padding: '2px 6px',
+    fontSize: '9px',
+    fontWeight: '600',
+    borderRadius: '3px',
+    color: '#000',
+    textTransform: 'uppercase',
   },
   modelBadge: {
     fontSize: '10px',
