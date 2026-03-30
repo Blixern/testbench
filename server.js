@@ -106,10 +106,11 @@ app.post('/api/chat', async (req, res) => {
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
     let fullSystemPrompt = buildSystemPrompt(activeRole);
 
-    // Retrieve relevant context if we have documents
-    if (lastUserMessage && vectorStore.hasDocuments()) {
+    // Retrieve relevant context from this user's documents
+    const ownerId = req.session.id;
+    if (lastUserMessage && vectorStore.hasDocuments(ownerId)) {
       try {
-        const { contextText } = await retrieveContext(vectorStore, lastUserMessage.content, 5);
+        const { contextText } = await retrieveContext(vectorStore, lastUserMessage.content, 5, ownerId);
         if (contextText) {
           fullSystemPrompt += `\n\n---\nRELEVANT KONTEKST FRA DOKUMENTER:\n${contextText}`;
         }

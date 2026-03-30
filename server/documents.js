@@ -65,8 +65,9 @@ function createDocumentRoutes(vectorStore) {
       // Embed all chunks
       const embeddings = await embedTexts(chunks);
 
-      // Store in vector store
-      vectorStore.addDocument(documentId, originalname, chunks, embeddings);
+      // Store in vector store (scoped to session)
+      const ownerId = req.session.id;
+      vectorStore.addDocument(documentId, originalname, chunks, embeddings, ownerId);
 
       // Rename uploaded file to include document ID
       const newPath = path.join(dataDir, 'uploads', `${documentId}${ext}`);
@@ -86,9 +87,9 @@ function createDocumentRoutes(vectorStore) {
     }
   });
 
-  // GET /api/documents — list all uploaded documents
+  // GET /api/documents — list this user's uploaded documents
   router.get('/documents', (req, res) => {
-    const docs = vectorStore.listDocuments();
+    const docs = vectorStore.listDocuments(req.session.id);
     res.json(docs);
   });
 

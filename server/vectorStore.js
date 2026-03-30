@@ -5,7 +5,7 @@ class VectorStore {
   constructor(dataDir) {
     this.dataDir = dataDir || process.env.DATA_DIR || './data';
     this.vectors = [];
-    this.documents = new Map(); // documentId -> { name, uploadedAt, chunkCount }
+    this.documents = new Map(); // documentId -> { name, uploadedAt, chunkCount, ownerId }
     this.filePath = path.join(this.dataDir, 'vectors.json');
   }
 
@@ -39,13 +39,14 @@ class VectorStore {
     }
   }
 
-  // Add document chunks with embeddings
-  addDocument(documentId, documentName, chunks, embeddings) {
+  // Add document chunks with embeddings (scoped to owner)
+  addDocument(documentId, documentName, chunks, embeddings, ownerId) {
     for (let i = 0; i < chunks.length; i++) {
       this.vectors.push({
         id: `${documentId}-${i}`,
         documentId,
         documentName,
+        ownerId,
         chunkIndex: i,
         text: chunks[i],
         embedding: embeddings[i]
@@ -54,6 +55,7 @@ class VectorStore {
 
     this.documents.set(documentId, {
       name: documentName,
+      ownerId,
       uploadedAt: new Date().toISOString(),
       chunkCount: chunks.length
     });
@@ -61,11 +63,15 @@ class VectorStore {
     this.save();
   }
 
-  // Search for most relevant chunks using cosine similarity
-  search(queryEmbedding, topK = 5) {
-    if (this.vectors.length === 0) return [];
+  // Search only within an owner's documents
+  search(queryEmbedding, topK = 5, ownerId = null) {
+    const pool = ownerId
+      ? this.vectors.filter(v => v.ownerId === ownerId)
+      : this.vectors;
 
-    const scored = this.vectors.map(vec => ({
+    if (pool.length === 0) return [];
+
+    const scored = pool.map(vec => ({
       ...vec,
       score: cosineSimilarity(queryEmbedding, vec.embedding)
     }));
@@ -81,17 +87,17 @@ class VectorStore {
     this.save();
   }
 
-  // List all documents
-  listDocuments() {
-    return Array.from(this.documents.entries()).map(([id, doc]) => ({
-      id,
-      ...doc
-    }));
+  // List documents for a specific owner
+  listDocuments(ownerId = null) {
+    return Array.from(this.documents.entries())
+      .filter(([id, doc]) => !ownerId || doc.ownerId === ownerId)
+      .map(([id, doc]) => ({ id, ...doc }));
   }
 
-  // Check if store has any documents
-  hasDocuments() {
-    return this.documents.size > 0;
+  // Check if an owner has any documents
+  hasDocuments(ownerId = null) {
+    if (!ownerId) return this.documents.size > 0;
+    return Array.from(this.documents.values()).some(d => d.ownerId === ownerId);
   }
 }
 

@@ -118,14 +118,14 @@ async function embedQuery(text) {
   return data.data[0].embedding;
 }
 
-// Retrieve relevant context for a query
-async function retrieveContext(vectorStore, query, topK = 5) {
-  if (!vectorStore.hasDocuments()) {
+// Retrieve relevant context for a query (scoped to owner)
+async function retrieveContext(vectorStore, query, topK = 5, ownerId = null) {
+  if (!vectorStore.hasDocuments(ownerId)) {
     return { chunks: [], contextText: '' };
   }
 
   const queryEmbedding = await embedQuery(query);
-  const results = vectorStore.search(queryEmbedding, topK);
+  const results = vectorStore.search(queryEmbedding, topK, ownerId);
 
   const contextText = results
     .map((r, i) => `[Kilde: ${r.documentName}, del ${r.chunkIndex + 1}]\n${r.text}`)
