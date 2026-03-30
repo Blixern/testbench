@@ -65,9 +65,13 @@ const ROLES = {
   }
 };
 
-function getSystemPromptForRole(role) {
-  const envKey = `SYSTEM_PROMPT_${role.toUpperCase()}`;
-  return process.env[envKey] || process.env.SYSTEM_PROMPT || 'Du er en hjelpsom AI-assistent. Svar på norsk.';
+function buildSystemPrompt(role) {
+  const base = process.env.SYSTEM_PROMPT || 'Du er en hjelpsom AI-assistent. Svar på norsk.';
+  const roleAddition = process.env[`ROLE_CONTEXT_${role.toUpperCase()}`] || '';
+  if (roleAddition) {
+    return `${base}\n\n---\nROLLEKONTEKST (${ROLES[role].name}):\n${roleAddition}`;
+  }
+  return base;
 }
 
 // GET /api/roles — list available roles
@@ -94,12 +98,11 @@ app.post('/api/chat', async (req, res) => {
   }
 
   const activeRole = role && ROLES[role] ? role : 'interessent';
-  const systemPrompt = getSystemPromptForRole(activeRole);
 
   try {
     // Get the latest user message for RAG retrieval
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-    let fullSystemPrompt = `[ROLLE: ${ROLES[activeRole].name.toUpperCase()}]\n\n${systemPrompt}`;
+    let fullSystemPrompt = buildSystemPrompt(activeRole);
 
     // Retrieve relevant context if we have documents
     if (lastUserMessage && vectorStore.hasDocuments()) {
