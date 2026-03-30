@@ -100,6 +100,9 @@ function serverAuthGate(req, res, next) {
   // Skip auth routes
   if (req.path.startsWith('/api/auth')) return next();
 
+  // Skip reports endpoint if valid admin key is provided
+  if (req.path.startsWith('/api/reports') && req.query.key && req.query.key === process.env.ADMIN_KEY) return next();
+
   // Check if authenticated
   if (req.session && req.session.authenticated) return next();
 
