@@ -229,6 +229,12 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
+// Global error handler — always return JSON, never HTML
+app.use((err, req, res, next) => {
+  console.error('Uventet feil:', err.message);
+  res.status(err.status || 500).json({ error: err.message || 'Intern serverfeil' });
+});
+
 app.listen(PORT, () => {
   console.log(`✓ Server kjører på http://localhost:${PORT}`);
   console.log(`  Modell: Claude Opus 4.6`);

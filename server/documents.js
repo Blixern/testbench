@@ -14,7 +14,7 @@ function createUploadMiddleware(dataDir) {
 
   return multer({
     dest: uploadDir,
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
     fileFilter: (req, file, cb) => {
       const allowed = ['.txt', '.md', '.json', '.csv', '.xml', '.html', '.pdf'];
       const ext = path.extname(file.originalname).toLowerCase();
@@ -33,7 +33,17 @@ function createDocumentRoutes(vectorStore) {
   const upload = createUploadMiddleware(dataDir);
 
   // POST /api/upload — upload and process a document
-  router.post('/upload', upload.single('file'), async (req, res) => {
+  router.post('/upload', (req, res, next) => {
+    upload.single('file')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ error: 'Filen er for stor. Maks 50MB.' });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  }, async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Ingen fil mottatt' });
     }
