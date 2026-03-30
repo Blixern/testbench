@@ -27,15 +27,16 @@ const storage = {
   }
 };
 
-// API call to server (no API key needed — server handles it)
-const callClaude = async (messages, role) => {
+// API call to server
+const callClaude = async (messages, role, noContext = false) => {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({
       messages: messages.map(m => ({ role: m.role, content: m.content })),
-      role
+      role,
+      noContext
     })
   });
 
@@ -177,6 +178,82 @@ function DocumentPanel() {
 }
 
 // ============================================================================
+// REPORT MODAL
+// ============================================================================
+
+function ReportModal({ question, answer, role, onClose }) {
+  const [comment, setComment] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSubmit = async () => {
+    setSending(true);
+    try {
+      const res = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ question, answer, comment, role })
+      });
+      if (res.ok) {
+        setSent(true);
+        setTimeout(onClose, 1500);
+      }
+    } catch (e) {
+      console.error('Kunne ikke sende rapport:', e);
+    }
+    setSending(false);
+  };
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={styles.modal} onClick={e => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <span>Rapporter svar</span>
+          <button onClick={onClose} style={styles.modalClose}>&times;</button>
+        </div>
+        <div style={styles.modalContent}>
+          {sent ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#00ff88' }}>
+              Takk for tilbakemeldingen!
+            </div>
+          ) : (
+            <>
+              <div style={styles.reportSection}>
+                <label style={styles.reportLabel}>Ditt spørsmål</label>
+                <div style={styles.reportText}>{question}</div>
+              </div>
+              <div style={styles.reportSection}>
+                <label style={styles.reportLabel}>Svar fra Claude</label>
+                <div style={{ ...styles.reportText, maxHeight: '150px', overflowY: 'auto' }}>{answer}</div>
+              </div>
+              <div style={styles.reportSection}>
+                <label style={styles.reportLabel}>Din kommentar</label>
+                <textarea
+                  value={comment}
+                  onChange={e => setComment(e.target.value)}
+                  placeholder="Hva var feil eller uventet med svaret?"
+                  style={styles.reportTextarea}
+                  rows={3}
+                  autoFocus
+                />
+              </div>
+              <button
+                onClick={handleSubmit}
+                disabled={sending}
+                style={{ ...styles.reportSubmit, opacity: sending ? 0.5 : 1 }}
+              >
+                {sending ? 'Sender...' : 'Send rapport'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // CHAT SIDEBAR
 // ============================================================================
 
@@ -240,9 +317,10 @@ function ChatSidebar({ chats, currentChatId, onSelectChat, onNewChat, onDeleteCh
 // CHAT INTERFACE
 // ============================================================================
 
-function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) {
+function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange, noContext, onToggleContext }) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [reportData, setReportData] = useState(null);
   const messagesEndRef = useRef(null);
 
   const messages = chat?.messages || [];
@@ -268,7 +346,7 @@ function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) 
     setIsLoading(true);
 
     try {
-      const response = await callClaude(newMessages, activeRole);
+      const response = await callClaude(newMessages, activeRole, noContext);
       const assistantMessage = { role: 'assistant', content: response.content };
 
       onUpdateChat({
@@ -291,7 +369,13 @@ function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) 
     }
   };
 
-  const currentRoleData = roles.find(r => r.key === activeRole);
+  // Find the user question that triggered an assistant message
+  const getQuestionForAnswer = (messageIndex) => {
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].content;
+    }
+    return '';
+  };
 
   return (
     <div style={styles.chatContainer}>
@@ -320,9 +404,28 @@ function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) 
               </button>
             ))}
           </div>
+          <button
+            onClick={onToggleContext}
+            style={{
+              ...styles.contextToggle,
+              ...(noContext ? styles.contextToggleActive : {})
+            }}
+            title={noContext ? 'Dokumentkontekst er AV' : 'Dokumentkontekst er PÅ'}
+          >
+            {noContext ? 'Uten kontekst' : 'Med kontekst'}
+          </button>
           <span style={styles.modelBadge}>Claude Opus</span>
         </div>
       </div>
+
+      {reportData && (
+        <ReportModal
+          question={reportData.question}
+          answer={reportData.answer}
+          role={activeRole}
+          onClose={() => setReportData(null)}
+        />
+      )}
 
       <div style={styles.messagesContainer}>
         {messages.length === 0 && (
@@ -344,8 +447,22 @@ function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) 
               ...(msg.isError ? styles.errorMessage : {})
             }}
           >
-            <div style={styles.messageRole}>
-              {msg.role === 'user' ? 'Du' : 'Claude'}
+            <div style={styles.messageHeader}>
+              <div style={styles.messageRole}>
+                {msg.role === 'user' ? 'Du' : 'Claude'}
+              </div>
+              {msg.role === 'assistant' && !msg.isError && (
+                <button
+                  onClick={() => setReportData({
+                    question: getQuestionForAnswer(i),
+                    answer: msg.content
+                  })}
+                  style={styles.reportButton}
+                  title="Rapporter dette svaret"
+                >
+                  Rapporter
+                </button>
+              )}
             </div>
             <div style={styles.messageContent}>
               {msg.role === 'assistant' ? (
@@ -428,6 +545,7 @@ export default function App() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [roles, setRoles] = useState([]);
   const [activeRole, setActiveRole] = useState('interessent');
+  const [noContext, setNoContext] = useState(false);
 
   // Check auth status on mount
   useEffect(() => {
@@ -548,6 +666,8 @@ export default function App() {
             activeRole={activeRole}
             roles={roles}
             onRoleChange={setActiveRole}
+            noContext={noContext}
+            onToggleContext={() => setNoContext(prev => !prev)}
           />
         </main>
 
@@ -556,7 +676,7 @@ export default function App() {
           <span style={styles.footerDivider}>•</span>
           <span>Rolle: {roles.find(r => r.key === activeRole)?.name || activeRole}</span>
           <span style={styles.footerDivider}>•</span>
-          <span>RAG-aktivert</span>
+          <span>{noContext ? 'Uten kontekst' : 'RAG-aktivert'}</span>
         </footer>
       </div>
     </div>
@@ -988,6 +1108,131 @@ const styles = {
     color: '#000',
     border: 'none',
     borderRadius: '8px',
+    cursor: 'pointer',
+  },
+
+  // Context toggle
+  contextToggle: {
+    padding: '4px 10px',
+    fontSize: '11px',
+    fontFamily: 'inherit',
+    border: '1px solid #333',
+    borderRadius: '4px',
+    backgroundColor: 'transparent',
+    color: '#888',
+    cursor: 'pointer',
+  },
+  contextToggleActive: {
+    borderColor: '#ff9f43',
+    color: '#ff9f43',
+    backgroundColor: 'rgba(255, 159, 67, 0.1)',
+  },
+
+  // Report button
+  reportButton: {
+    padding: '2px 8px',
+    fontSize: '10px',
+    fontFamily: 'inherit',
+    border: '1px solid #333',
+    borderRadius: '3px',
+    backgroundColor: 'transparent',
+    color: '#666',
+    cursor: 'pointer',
+  },
+  messageHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '6px',
+  },
+
+  // Modal
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modal: {
+    backgroundColor: '#111',
+    border: '1px solid #1a1a1a',
+    borderRadius: '12px',
+    width: '500px',
+    maxWidth: '90vw',
+    maxHeight: '80vh',
+    overflow: 'auto',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '16px 20px',
+    borderBottom: '1px solid #1a1a1a',
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modalClose: {
+    background: 'none',
+    border: 'none',
+    color: '#666',
+    fontSize: '20px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  modalContent: {
+    padding: '20px',
+  },
+  reportSection: {
+    marginBottom: '16px',
+  },
+  reportLabel: {
+    display: 'block',
+    fontSize: '10px',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+    color: '#888',
+    marginBottom: '6px',
+  },
+  reportText: {
+    fontSize: '13px',
+    color: '#ccc',
+    padding: '10px',
+    backgroundColor: '#0a0a0a',
+    borderRadius: '6px',
+    border: '1px solid #1a1a1a',
+    lineHeight: '1.5',
+  },
+  reportTextarea: {
+    width: '100%',
+    padding: '10px',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    backgroundColor: '#0a0a0a',
+    border: '1px solid #333',
+    borderRadius: '6px',
+    color: '#e0e0e0',
+    outline: 'none',
+    resize: 'vertical',
+    boxSizing: 'border-box',
+  },
+  reportSubmit: {
+    width: '100%',
+    padding: '10px',
+    fontSize: '13px',
+    fontWeight: '600',
+    fontFamily: 'inherit',
+    backgroundColor: '#00ff88',
+    color: '#000',
+    border: 'none',
+    borderRadius: '6px',
     cursor: 'pointer',
   },
 };

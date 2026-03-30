@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const { router: authRouter, requireAuth } = require('./server/auth');
 const createDocumentRoutes = require('./server/documents');
+const createReportRoutes = require('./server/reports');
 const VectorStore = require('./server/vectorStore');
 const { retrieveContext } = require('./server/rag');
 
@@ -121,6 +122,9 @@ app.use(express.static(path.join(__dirname, 'build')));
 // Document routes
 app.use('/api', createDocumentRoutes(vectorStore));
 
+// Report routes
+app.use('/api', createReportRoutes(DATA_DIR));
+
 // Role definitions
 const ROLES = {
   interessent: {
@@ -161,7 +165,7 @@ app.get('/api/roles', (req, res) => {
 
 // Chat endpoint — RAG-enhanced with role support
 app.post('/api/chat', async (req, res) => {
-  const { messages, role } = req.body;
+  const { messages, role, noContext } = req.body;
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Ingen meldinger mottatt' });
@@ -178,9 +182,9 @@ app.post('/api/chat', async (req, res) => {
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
     let fullSystemPrompt = buildSystemPrompt(activeRole);
 
-    // Retrieve relevant context from this user's documents
+    // Retrieve relevant context from this user's documents (skip if noContext mode)
     const ownerId = req.sessionID;
-    if (lastUserMessage && vectorStore.hasDocuments(ownerId)) {
+    if (!noContext && lastUserMessage && vectorStore.hasDocuments(ownerId)) {
       try {
         const { contextText } = await retrieveContext(vectorStore, lastUserMessage.content, 5, ownerId);
         if (contextText) {
