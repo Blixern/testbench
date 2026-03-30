@@ -186,8 +186,11 @@ function ReportModal({ question, answer, role, onClose }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
 
+  const [error, setError] = useState('');
+
   const handleSubmit = async () => {
     setSending(true);
+    setError('');
     try {
       const res = await fetch('/api/report', {
         method: 'POST',
@@ -198,9 +201,13 @@ function ReportModal({ question, answer, role, onClose }) {
       if (res.ok) {
         setSent(true);
         setTimeout(onClose, 1500);
+        return;
       }
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || 'Kunne ikke sende rapport');
     } catch (e) {
       console.error('Kunne ikke sende rapport:', e);
+      setError('Nettverksfeil — prøv igjen');
     }
     setSending(false);
   };
@@ -238,6 +245,11 @@ function ReportModal({ question, answer, role, onClose }) {
                   autoFocus
                 />
               </div>
+              {error && (
+                <div style={{ color: '#ff4444', fontSize: '12px', marginBottom: '12px', padding: '8px', backgroundColor: 'rgba(255,68,68,0.1)', borderRadius: '4px' }}>
+                  {error}
+                </div>
+              )}
               <button
                 onClick={handleSubmit}
                 disabled={sending}
