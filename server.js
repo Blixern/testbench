@@ -21,34 +21,107 @@ const vectorStore = new VectorStore(DATA_DIR);
 vectorStore.load();
 
 // Middleware
-app.set('trust proxy', 1); // Trust Railway's reverse proxy
+app.set('trust proxy', 1);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
   resave: false,
-  saveUninitialized: false,
+  saveUninitialized: true,
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : false,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
-// Serve React build in production
-app.use(express.static(path.join(__dirname, 'build')));
-
-// Auth routes (no auth required)
+// --- AUTH ROUTES (public, no auth required) ---
 app.use('/api/auth', authRouter);
 
-// All other API routes require authentication
-app.use('/api', requireAuth);
+// --- LOGIN PAGE (served to unauthenticated users) ---
+const LOGIN_HTML = `<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Chat Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; color: #e0e0e0; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { text-align: center; padding: 48px; background: #111; border-radius: 12px; border: 1px solid #1a1a1a; min-width: 360px; }
+    .logo { font-size: 48px; color: #00ff88; margin-bottom: 16px; }
+    h1 { font-size: 20px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+    .sub { font-size: 13px; color: #666; margin-bottom: 32px; }
+    form { display: flex; flex-direction: column; gap: 12px; }
+    input { padding: 12px 16px; font-size: 14px; font-family: inherit; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; color: #e0e0e0; outline: none; text-align: center; }
+    button { padding: 12px 24px; font-size: 14px; font-family: inherit; font-weight: 600; background: #00ff88; color: #000; border: none; border-radius: 8px; cursor: pointer; }
+    button:disabled { opacity: 0.5; }
+    .error { margin-top: 16px; padding: 10px; font-size: 12px; color: #ff4444; background: rgba(255,68,68,0.1); border-radius: 6px; border: 1px solid rgba(255,68,68,0.2); display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">&#9672;</div>
+    <h1>AI Chat Demo</h1>
+    <p class="sub">Skriv inn passord for å fortsette</p>
+    <form id="loginForm">
+      <input type="password" id="pw" placeholder="Passord" autofocus required>
+      <button type="submit" id="btn">Logg inn</button>
+    </form>
+    <div class="error" id="err"></div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = document.getElementById('pw');
+      const btn = document.getElementById('btn');
+      const err = document.getElementById('err');
+      btn.disabled = true; btn.textContent = 'Logger inn...'; err.style.display = 'none';
+      try {
+        const res = await fetch('/api/auth/verify', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ password: pw.value })
+        });
+        const data = await res.json();
+        if (data.success) { window.location.reload(); }
+        else { err.textContent = data.error || 'Feil passord'; err.style.display = 'block'; pw.value = ''; }
+      } catch(e) { err.textContent = 'Kunne ikke koble til serveren'; err.style.display = 'block'; }
+      btn.disabled = false; btn.textContent = 'Logg inn';
+    });
+  </script>
+</body>
+</html>`;
+
+// --- SERVER-SIDE AUTH GATE ---
+// All requests (except /api/auth/*) must be authenticated
+function serverAuthGate(req, res, next) {
+  // Skip auth routes
+  if (req.path.startsWith('/api/auth')) return next();
+
+  // Check if authenticated
+  if (req.session && req.session.authenticated) return next();
+
+  // API requests get 401
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Ikke autentisert' });
+  }
+
+  // HTML/page requests get the login page
+  return res.send(LOGIN_HTML);
+}
+
+app.use(serverAuthGate);
+
+// --- PROTECTED ROUTES (only reached if authenticated) ---
+
+// Serve React build
+app.use(express.static(path.join(__dirname, 'build')));
 
 // Document routes
 app.use('/api', createDocumentRoutes(vectorStore));
 
-// Role definitions — system prompts from env vars
+// Role definitions
 const ROLES = {
   interessent: {
     name: 'Interessent',
@@ -76,12 +149,12 @@ function buildSystemPrompt(role) {
   return base;
 }
 
-// GET /api/roles — list available roles
+// GET /api/roles
 app.get('/api/roles', (req, res) => {
   const roles = Object.entries(ROLES).map(([key, r]) => ({
     key,
     ...r,
-    hasPrompt: !!process.env[`SYSTEM_PROMPT_${key.toUpperCase()}`]
+    hasPrompt: !!process.env[`ROLE_CONTEXT_${key.toUpperCase()}`]
   }));
   res.json(roles);
 });
@@ -102,7 +175,6 @@ app.post('/api/chat', async (req, res) => {
   const activeRole = role && ROLES[role] ? role : 'interessent';
 
   try {
-    // Get the latest user message for RAG retrieval
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
     let fullSystemPrompt = buildSystemPrompt(activeRole);
 
@@ -119,7 +191,6 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // Call Claude Opus 4.6
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -131,10 +202,7 @@ app.post('/api/chat', async (req, res) => {
         model: 'claude-opus-4-6',
         max_tokens: 4096,
         system: fullSystemPrompt,
-        messages: messages.map(m => ({
-          role: m.role,
-          content: m.content
-        }))
+        messages: messages.map(m => ({ role: m.role, content: m.content }))
       })
     });
 
@@ -152,7 +220,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// Catch-all: serve React app for client-side routing
+// Catch-all: serve React app
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
@@ -162,5 +230,5 @@ app.listen(PORT, () => {
   console.log(`  Modell: Claude Opus 4.6`);
   console.log(`  Dokumenter: ${vectorStore.listDocuments().length} lastet`);
   console.log(`  Passord: ${process.env.ACCESS_PASSWORD ? 'Satt' : 'IKKE SATT!'}`);
-  console.log(`  Roller: ${Object.keys(ROLES).map(r => `${r}${process.env['SYSTEM_PROMPT_' + r.toUpperCase()] ? ' ✓' : ' ✗'}`).join(', ')}`);
+  console.log(`  Roller: ${Object.keys(ROLES).map(r => `${r}${process.env['ROLE_CONTEXT_' + r.toUpperCase()] ? ' ✓' : ' ✗'}`).join(', ')}`);
 });
