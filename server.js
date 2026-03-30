@@ -21,6 +21,7 @@ const vectorStore = new VectorStore(DATA_DIR);
 vectorStore.load();
 
 // Middleware
+app.set('trust proxy', 1); // Trust Railway's reverse proxy
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(session({
@@ -29,7 +30,8 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production' && process.env.FORCE_HTTPS === 'true',
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : false,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
