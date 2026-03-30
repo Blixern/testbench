@@ -18,8 +18,7 @@
     "start": "node server.js",
     "dev:client": "react-scripts start",
     "dev:server": "node server.js",
-    "build": "react-scripts build",
-    "postinstall": "react-scripts build"
+    "build": "react-scripts build"
   },
   "browserslist": {
     "production": [
