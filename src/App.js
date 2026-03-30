@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import Markdown from 'react-markdown';
 import PasswordGate from './PasswordGate';
 
 // ============================================================================
@@ -347,7 +348,24 @@ function ChatInterface({ chat, onUpdateChat, activeRole, roles, onRoleChange }) 
               {msg.role === 'user' ? 'Du' : 'Claude'}
             </div>
             <div style={styles.messageContent}>
-              {msg.content}
+              {msg.role === 'assistant' ? (
+                <Markdown components={{
+                  p: ({children}) => <p style={{margin: '0 0 8px'}}>{children}</p>,
+                  ul: ({children}) => <ul style={{margin: '0 0 8px', paddingLeft: '20px'}}>{children}</ul>,
+                  ol: ({children}) => <ol style={{margin: '0 0 8px', paddingLeft: '20px'}}>{children}</ol>,
+                  li: ({children}) => <li style={{marginBottom: '4px'}}>{children}</li>,
+                  h1: ({children}) => <h1 style={{fontSize: '18px', fontWeight: '700', margin: '16px 0 8px', color: '#fff'}}>{children}</h1>,
+                  h2: ({children}) => <h2 style={{fontSize: '16px', fontWeight: '600', margin: '14px 0 6px', color: '#fff'}}>{children}</h2>,
+                  h3: ({children}) => <h3 style={{fontSize: '14px', fontWeight: '600', margin: '12px 0 4px', color: '#eee'}}>{children}</h3>,
+                  strong: ({children}) => <strong style={{color: '#fff', fontWeight: '600'}}>{children}</strong>,
+                  code: ({children, className}) => className ? (
+                    <pre style={{backgroundColor: '#0a0a0a', padding: '12px', borderRadius: '6px', overflow: 'auto', margin: '8px 0', border: '1px solid #1a1a1a'}}><code>{children}</code></pre>
+                  ) : (
+                    <code style={{backgroundColor: '#1a1a1a', padding: '2px 6px', borderRadius: '3px', fontSize: '13px'}}>{children}</code>
+                  ),
+                  blockquote: ({children}) => <blockquote style={{borderLeft: '3px solid #333', paddingLeft: '12px', margin: '8px 0', color: '#aaa'}}>{children}</blockquote>,
+                }}>{msg.content}</Markdown>
+              ) : msg.content}
             </div>
           </div>
         ))}
@@ -926,7 +944,6 @@ const styles = {
   messageContent: {
     fontSize: '14px',
     lineHeight: '1.6',
-    whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
   },
   thinkingIndicator: {
